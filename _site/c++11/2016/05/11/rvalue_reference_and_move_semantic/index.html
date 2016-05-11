@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>右值引用与move语义 &#8211; Bourne X</title>
+    <link rel="dns-prefetch" href="//maxcdn.bootstrapcdn.com">
+    <link rel="dns-prefetch" href="//cdn.mathjax.org">
+    <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff.">
+    <meta name="robots" content="all">
+    <meta name="author" content="John Otander">
+    <meta name="keywords" content="C++11">
+    <link rel="canonical" href="http://bournex.cn/c++11/2016/05/11/rvalue_reference_and_move_semantic/">
+    <link rel="alternate" type="application/rss+xml" title="RSS Feed for Bourne X" href="/feed.xml" />
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/pixyll.css?201605112257" type="text/css">
+
+    <!-- Fonts -->
+    
+    <link href='//fonts.googleapis.com/css?family=Merriweather:900,900italic,300,300italic' rel='stylesheet' type='text/css'>
+    <link href='//fonts.googleapis.com/css?family=Lato:900,300' rel='stylesheet' type='text/css'>
+    
+    
+
+    <!-- MathJax -->
+    
+
+    <!-- Verifications -->
+    
+    
+
+    <!-- Open Graph -->
+    <!-- From: https://github.com/mmistakes/hpstr-jekyll-theme/blob/master/_includes/head.html -->
+    <meta property="og:locale" content="en_US">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="右值引用与move语义">
+    <meta property="og:description" content="A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff.">
+    <meta property="og:url" content="http://bournex.cn/c++11/2016/05/11/rvalue_reference_and_move_semantic/">
+    <meta property="og:site_name" content="Bourne X">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    
+    <meta name="twitter:title" content="右值引用与move语义" />
+    <meta name="twitter:description" content="A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff." />
+    <meta name="twitter:url" content="http://bournex.cn/c++11/2016/05/11/rvalue_reference_and_move_semantic/" />
+
+    <!-- Icons -->
+    <link rel="apple-touch-icon" sizes="57x57" href="/apple-touch-icon-57x57.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="/apple-touch-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="/apple-touch-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/apple-touch-icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="/apple-touch-icon-60x60.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120x120.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="/apple-touch-icon-76x76.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png">
+    <link rel="icon" type="image/png" href="/favicon-192x192.png" sizes="192x192">
+    <link rel="icon" type="image/png" href="/favicon-160x160.png" sizes="160x160">
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96">
+    <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16">
+    <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32">
+
+    
+</head>
+
+<body class="site">
+  
+	
+
+  <div class="site-wrap">
+    <header class="site-header px2 px-responsive">
+  <div class="mt2 wrap">
+    <div class="measure">
+      <a href="http://bournex.cn" class="site-title">Bourne X</a>
+      <nav class="site-nav">
+        
+    
+
+    
+        <a href="/about/">About</a>
+    
+
+    
+
+    
+
+    
+
+    
+
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+
+      </nav>
+      <div class="clearfix"></div>
+      
+    </div>
+  </div>
+</header>
+
+
+    <div class="post p2 p-responsive wrap" role="main">
+      <div class="measure">
+        
+
+
+<div class="post-header mb2">
+  <h1>右值引用与move语义</h1>
+  <span class="post-meta">May 11, 2016</span><br>
+  
+  <span class="post-meta small">
+  
+    2 minute read
+  
+  </span>
+</div>
+
+<article class="post-content">
+  <p>写技术博客还是挺锻炼人的，因为没有深入的学习，写出来的东西就会很不堪，甚至觉得还不如课本，此前大多也是这样写着写着就坚持不下去了。
+回想起当年轮子哥在博客上模仿MFC写自己的GUI库，底下评论一片吐槽其重复造轮子没必要，结果最后轮子哥造轮子造到微软西雅图总部去了。所以左思右想，即使是照本宣科，也应该坚持下去。
+事实上轮子这东西，你没亲手造过根本不知道有多少坑，与其花大量时间精读别人的代码，不如理解了设计之后自己去造轮子，对于个人的成长，更有帮助。</p>
+
+<p><strong>不想亲手造轮子的程序员，不是好程序员。</strong></p>
+
+<p>闲话至此，言归正传。</p>
+
+<p>早先认识到的是左值和右值的区别，简单定义为赋值符号
+左侧的值为左值，而右侧的为右值，左值可以作为右值出现，但是右值不能作为左值出现。
+这种定义方式在教学中足够了，但是随着C++语言的进步，出现了需要对一些特殊右值操作
+的需要，这里主要指的是临时变量作为右值。在C++11标准中，对表达式做了如下的分类。</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>                         expression
+                     	 ↙        ↘
+                      glvalue     rvalue
+                     ↙      ↘    ↙      ↘
+                 lvalue     xvalue     prvalue
+</code></pre>
+</div>
+
+<p>其中prvalue是pure-rvalue，比如常数、字符串常量，都属于这种纯右值，不做讨论。
+而lvalue就是此前我们认识的变量标识符对象，他们可以被多次修改。而xvalue则代表生命期
+很短的对象，例如在</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>char c = getchar();
+</code></pre>
+</div>
+
+<p>表达式中，getchar返回后
+编译器会替我们构造一个看不见的char变量x，实际上c是被这个x赋值了，而当表达式结束后
+x的生命期就结束了，这里的x，就属于xvalue。而glvalue表示广义的左值，理解了这些概念之后
+很自然就会产生两个问题：</p>
+
+<ol>
+  <li>强行把xvalue作为左值有什么用呢，又不能改变它？</li>
+  <li>就算能改变它，又有什么意义呢？</li>
+</ol>
+
+<p>这次我们定义一个复杂类型：mstr类，用于保存字符串，并为它定义拷贝构造函数。</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>class mstr
+{
+private:
+	char *m_p;
+public:
+	mstr(const char *p = NULL):m_p(NULL){
+		cout&lt;&lt;"in regular constructor:"&lt;&lt;static_cast&lt;void*&gt;(this)&lt;&lt;endl;
+		if (p)
+		{
+			unsigned int nLen = strlen(p);
+			this-&gt;m_p = new char[nLen + 1];
+			strcpy(this-&gt;m_p, p);
+			this-&gt;m_p[nLen] = 0;
+		}
+		else
+		{
+			this-&gt;m_p = new char[1];
+			this-&gt;m_p[0] = 0;
+		}
+	}
+	~mstr()
+	{
+		if (this-&gt;m_p)
+		{
+			cout&lt;&lt;"in destructor address:"&lt;&lt;static_cast&lt;void*&gt;(m_p)&lt;&lt;endl;
+			delete []this-&gt;m_p;
+			this-&gt;m_p = NULL;
+		}
+	}
+	// copy
+	mstr(const mstr &amp; s){
+		cout&lt;&lt;"in copy constructor"&lt;&lt;endl;
+		if (!this-&gt;m_p)
+		{
+			delete []this-&gt;m_p;
+			this-&gt;m_p = NULL;
+		}
+
+		unsigned int nLen = strlen(s.m_p);
+		this-&gt;m_p = new char[nLen + 1];
+		strncpy(this-&gt;m_p, s.m_p, nLen);
+		this-&gt;m_p[nLen] = 0;
+	}
+
+	mstr &amp; operator=(const mstr &amp; s){
+		cout&lt;&lt;"in copy assignment"&lt;&lt;endl;
+		if (this == &amp;s)
+			return *this;
+
+		delete []m_p;
+		unsigned int nlen = strlen(s.m_p);
+		this-&gt;m_p = new char[nlen + 1];
+		strcpy(this-&gt;m_p, s.m_p);
+		this-&gt;m_p[nlen] = 0;
+
+		return *this;
+	}
+public:
+	void print()
+	{
+		cout&lt;&lt;"address:"&lt;&lt;static_cast&lt;void*&gt;(m_p)&lt;&lt;", value:"&lt;&lt;m_p&lt;&lt;endl;
+	}
+};
+</code></pre>
+</div>
+
+<p>拷贝构造函数的实现方式是将源对象设置为const引用，意为不会对源对象的值进行修改，当深拷贝
+发生时，假如源mstr对象保存了1MB的字符串，那么我们的左值mstr也需要new出1MB的空间保存字符串副本。
+但是，如果源对象将立即被销毁（如getchar的返回值），那这次构造就产生了一次1MB的数据拷贝成本和1次delete
+这也是此前C++函数返回临时对象调用深拷贝产生的效率问题。这种效率的损耗在成百上千次的调用中会被放大。</p>
+
+<p>定义对xvalue的引用，就是为了能让C++代码可以有机会抓住稍纵即逝的xvalue（右值引用），
+并将它的值‘偷’过来（move语义），比如将xvalue的1MB字符串首地址指针直接复制过来，并在复制完成后清空源对象的指针，注意这里说的是清空，不是delete。在这个过程里由于xvalue的值发生了变化，所以不是严格意义上的右值，它具有了广义左值的属性。这就是上面两个问题的答案。</p>
+
+<p>了解一下这两个新特性的语法，右值引用的语法是两个’&amp;’符号：
+char &amp;&amp; c = std::move(getchar());
+move语义的表现就是std库中的move函数，它的入参是一个xvalue，而返回值就是一个右值引用。
+move是如此简单以至于其实现可以只有一句话：
+    static_cast&lt;remove_reference&lt;decltype(arg)&gt;::type&amp;&amp;&gt;(arg);</p>
+
+<p>描述完右值引用和move语义的来龙去脉，下面改写一下此前的mstr类，实现基于右值引用和move语义的拷贝构造函数</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>class mstr
+{
+private:
+	char *m_p;
+public:
+	mstr(const char *p = nullptr):m_p(nullptr){
+		cout&lt;&lt;"in regular constructor:"&lt;&lt;static_cast&lt;void*&gt;(this)&lt;&lt;endl;
+		if (p)
+		{
+			unsigned int nLen = strlen(p);
+			this-&gt;m_p = new char[nLen + 1];
+			strcpy(this-&gt;m_p, p);
+			this-&gt;m_p[nLen] = 0;
+		}
+		else
+		{
+			this-&gt;m_p = new char[1];
+			this-&gt;m_p[0] = 0;
+		}
+	}
+	~mstr()
+	{
+		if (this-&gt;m_p)
+		{
+			cout&lt;&lt;"in destructor address:"&lt;&lt;static_cast&lt;void*&gt;(m_p)&lt;&lt;endl;
+			delete []this-&gt;m_p;
+			this-&gt;m_p = nullptr;
+		}
+	}
+	// copy
+	mstr(const mstr &amp; s){
+		cout&lt;&lt;"in copy constructor"&lt;&lt;endl;
+		if (!this-&gt;m_p)
+		{
+			delete []this-&gt;m_p;
+			this-&gt;m_p = nullptr;
+		}
+
+		unsigned int nLen = strlen(s.m_p);
+		this-&gt;m_p = new char[nLen + 1];
+		strncpy(this-&gt;m_p, s.m_p, nLen);
+		this-&gt;m_p[nLen] = 0;
+	}
+
+	mstr &amp; operator=(const mstr &amp; s){
+		cout&lt;&lt;"in copy assignment"&lt;&lt;endl;
+		if (this == &amp;s)
+			return *this;
+
+		delete []m_p;
+		unsigned int nlen = strlen(s.m_p);
+		this-&gt;m_p = new char[nlen + 1];
+		strcpy(this-&gt;m_p, s.m_p);
+		this-&gt;m_p[nlen] = 0;
+
+		return *this;
+	}
+
+	// move
+	mstr(mstr &amp;&amp; s){
+		cout&lt;&lt;"in move constructor"&lt;&lt;endl;
+		this-&gt;m_p = s.m_p;
+		s.m_p = nullptr;
+	}
+
+	mstr &amp; operator=(mstr &amp;&amp; s){
+		cout&lt;&lt;"in move assignment"&lt;&lt;endl;
+		std::swap(m_p, s.m_p);
+		return *this;
+	}
+
+public:
+	void print()
+	{
+		cout&lt;&lt;"address:"&lt;&lt;static_cast&lt;void*&gt;(m_p)&lt;&lt;", value:"&lt;&lt;m_p&lt;&lt;endl;
+	}
+};
+</code></pre>
+</div>
+
+<p>实际执行效果自行验证吧。</p>
+
+<p>需要注意的是，std::move的参数，不能是左值，因为move拷贝构造返回后，入参的成员会被”掏空”。而左值作为变量描述符
+可能在后面的代码中继续会用到，所以应避免这种用法。在实际测试当中，vs2012编译器并没有禁止将左值传入move函数，而在
+xcode中则编译报错提示，rvalue reference cannot bind to lvalue。</p>
+
+<p>以上。</p>
+
+</article>
+
+
+
+
+
+
+
+
+
+
+
+      </div>
+    </div>
+  </div>
+
+  <footer class="center">
+  <div class="measure">
+    <small>
+      Theme crafted with &lt;3 by <a href="http://johnotander.com">John Otander</a> (<a href="https://twitter.com/4lpine">@4lpine</a>).<br>
+      &lt;/&gt; available on <a href="https://github.com/johnotander/pixyll">Github</a>.
+    </small>
+  </div>
+</footer>
+
+
+</body>
+</html>
