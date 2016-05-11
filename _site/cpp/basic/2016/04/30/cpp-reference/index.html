@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Bourne X</title>
+    <title>C++11学习之右值引用 &#8211; Bourne X</title>
     <link rel="dns-prefetch" href="//maxcdn.bootstrapcdn.com">
     <link rel="dns-prefetch" href="//cdn.mathjax.org">
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
@@ -11,12 +11,12 @@
     <meta name="description" content="A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff.">
     <meta name="robots" content="all">
     <meta name="author" content="John Otander">
-    
-    <link rel="canonical" href="http://bournex.cn/">
+    <meta name="keywords" content="cpp, basic">
+    <link rel="canonical" href="http://bournex.cn/cpp/basic/2016/04/30/cpp-reference/">
     <link rel="alternate" type="application/rss+xml" title="RSS Feed for Bourne X" href="/feed.xml" />
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/css/pixyll.css?201605112257" type="text/css">
+    <link rel="stylesheet" href="/css/pixyll.css?201605021029" type="text/css">
 
     <!-- Fonts -->
     
@@ -36,17 +36,17 @@
     <!-- From: https://github.com/mmistakes/hpstr-jekyll-theme/blob/master/_includes/head.html -->
     <meta property="og:locale" content="en_US">
     <meta property="og:type" content="article">
-    <meta property="og:title" content="Bourne X">
+    <meta property="og:title" content="C++11学习之右值引用">
     <meta property="og:description" content="A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff.">
-    <meta property="og:url" content="http://bournex.cn/">
+    <meta property="og:url" content="http://bournex.cn/cpp/basic/2016/04/30/cpp-reference/">
     <meta property="og:site_name" content="Bourne X">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
     
-    <meta name="twitter:title" content="Bourne X" />
+    <meta name="twitter:title" content="C++11学习之右值引用" />
     <meta name="twitter:description" content="A simple, beautiful theme for Jekyll that emphasizes content rather than aesthetic fluff." />
-    <meta name="twitter:url" content="http://bournex.cn/" />
+    <meta name="twitter:url" content="http://bournex.cn/cpp/basic/2016/04/30/cpp-reference/" />
 
     <!-- Icons -->
     <link rel="apple-touch-icon" sizes="57x57" href="/apple-touch-icon-57x57.png">
@@ -118,52 +118,35 @@
       <div class="measure">
         
 
-<div class="home">
+
+<div class="post-header mb2">
+  <h1>C++11学习之右值引用</h1>
+  <span class="post-meta">Apr 30, 2016</span><br>
   
-    <div class="posts">
-      
-        <div class="post py3">
-          <p class="post-meta">May 11, 2016</p>
-          <a href="/c++11/2016/05/11/rvalue_reference_and_move_semantic/" class="post-link"><h3 class="h1 post-title">右值引用与move语义</h3></a>
-          <p class="post-summary">
-            
-              <p>写技术博客还是挺锻炼人的，因为没有深入的学习，写出来的东西就会很不堪，甚至觉得还不如课本，此前大多也是这样写着写着就坚持不下去了。
-回想起当年轮子哥在博客上模仿MFC写自己的GUI库，底下评论一片吐槽其重复造轮子没必要，结果最后轮子哥造轮子造到微软西雅图总部去了。所以左思右想，即使是照本宣科，也应该坚持下去。
-事实上轮子这东西，你没亲手造过根本不知道有多少坑，与其花大量时间精读别人的代码，不如理解了设计之后自己去造轮子，对于个人的成长，更有帮助。</p>
-
-
-            
-          </p>
-        </div>
-      
-        <div class="post py3">
-          <p class="post-meta">Apr 29, 2016</p>
-          <a href="/stuff/2016/04/29/helloworld/" class="post-link"><h3 class="h1 post-title">开篇</h3></a>
-          <p class="post-summary">
-            
-              <p>坚持写博客的缘由有千万种，不坚持写博客大多因为懒。：）</p>
-
-            
-          </p>
-        </div>
-      
-    </div>
-
-    <div class="pagination clearfix mb1 mt4">
-  <div class="left">
-    
-      <span class="pagination-item disabled">Newer</span>
-    
-  </div>
-  <div class="right">
-    
-      <span class="pagination-item disabled">Older</span>
-    
-  </div>
+  <span class="post-meta small">
+  
+    1 minute read
+  
+  </span>
 </div>
 
-  
-</div>
+<article class="post-content">
+  <p>左值和右值在学习编程中很早就接触的概念，但是并没有完全讲清楚他们的定义，老师只是笼统的说，能在赋值符号左侧的就是左值，在赋值符号右侧的可以是左值或右值，但只能在赋值符号右侧的就是右值。这种定义在教学环境下没什么问题，但是如果要讨论右值引用，肯定是不够的。</p>
+
+<p>下图是C++11标准3.10中的对表达式的分类</p>
+
+
+</article>
+
+
+
+
+
+
+
+
+
+
 
       </div>
     </div>

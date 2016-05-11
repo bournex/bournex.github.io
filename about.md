@@ -7,7 +7,7 @@ tags: about
 
 从前有一个码农，他酗酒、纹身、吸烟、说脏话，但他是个好码农。
 
-that‘s my code shop
+my place
 [BourneX Github](https://github.com/bournex)
 
 respect to theme author
