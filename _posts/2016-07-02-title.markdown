@@ -1,0 +1,185 @@
+---
+layout: post
+title: exploit之栈帧
+date: 2016-07-02 15:09:00
+description: exploit and stack frame
+---
+
+
+###前置知识         
+>
+
+- asm
+- register
+- stack
+
+####**asm**     
+>
+
+汇编语言有两种，一种是intel语法，一种是AT&T语法。两种语法有一些区别，比如intel的mov指令的src参数在右，dest参数在左；而AT&T相反。详细的查手册吧，下面将采用intel语法描述。
+
+**push operand**  
+将栈顶指针向低地址移动（ESP减小），并将操作数保存到增长的栈空间中。
+
+**pop operand**
+将栈顶指针向高地址移动（ESP增加），并将栈中的值加载到操作数中。操作数可以是寄存器或地址。
+
+**mov dest src**  
+拷贝src数据到dest。src可以是立即数、寄存器、内存地址；dest可以是寄存器、内存地址；两个操作数大小须一致。较常见的是与位宽一致，比如32bit。
+
+**add dest src**  
+将源操作数和目标操作数相加，并将结果保存到目标操作数当中。源操作数可以是寄存器、内存地址或立即数，目标操作数可以是寄存器或内存地址。如果源操作数是立即数，则会被扩展到与dest相同的字长。
+
+**sub operand1 operand2**  
+将操作数1减去操作数2，并将结果保存在操作数1当中。操作数1可以是寄存器或内存地址、操作数2可以是立即数、寄存器或内存地址。
+
+**call operand**  
+保存过程连接信息到栈，并切换到操作数指定的地址进行执行。
+
+以上基本都是对intel manual的翻译，回顾一下这些指令。
+
+####**register**
+>
+
+根据硬件架构的不同，寄存器的数量和用途也会有些区别，下面主要用到这几个寄存器
+
+
+- EAX - 累加操作和返回值
+- EBX -
+- ECX - 循环计数器
+- EDX - I/O指针
+- EBP - 栈基指针（base pointer）
+- ESP - 栈顶指针（stack pointer）
+- EIP - 指令指针（instruction pointer）
+
+
+EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明参考[Intel® 64 and IA-32 Architectures Software Developer’s Manuals  3.4.1节](http://119.90.25.40/www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-1-manual.pdf)。
+
+
+####**stack**
+>
+
+广义的栈指一种LIFO的数据结构，通常具有push和pop两个操作，push将数据压入栈顶，pop将数据从栈顶弹出，整个操作就像装弹夹和射击过程中弹夹的状态。对于操作系统，栈结构要比弹夹复杂一些，后面提到的栈都是操作系统层面的栈。
+
+通常来说，在虚拟内存空间中，栈以线性方式实现，栈顶在低地址，栈底在高地址。
+以上作为对基础的回顾，详细的可以到wiki查找。
+
+在最初我们可以基本将栈帧等同于一个处于执行状态的函数。
+
+下图展示了栈帧的静态状态
+
+<div class="img_row">
+	<img class="col three" src="{{ site.baseurl }}/img/stack_frame_static.jpg" alt="" title="stack frame static"/>
+</div>
+
+现有如下的C++程序
+
+{% highlight c++ %}
+void foo(int a, int b)
+{
+    printf("a + b = %d\n", a+b);
+}
+
+int main(int argc, char **argv)
+{
+    int i = 10;
+    int j = 20;
+
+    foo(i, j);
+
+    return 0;
+}
+{% endhighlight %}
+
+在debug运行环境中右键show assmebly，或者vs工程属性也可以生成asm文件。可以看到main的汇编码如下：
+
+{% highlight c++ %}
+int _tmain(int argc, _TCHAR* argv[])
+{
+00401030  push        ebp  
+00401031  mov         ebp,esp  
+00401033  sub         esp,8  
+	int a = 10;
+00401036  mov         dword ptr [a],0Ah  
+	int b = 20;
+0040103D  mov         dword ptr [b],14h  
+
+	foo(a, b);
+00401044  mov         eax,dword ptr [b]  
+00401047  push        eax  
+00401048  mov         ecx,dword ptr [a]  
+0040104B  push        ecx  
+0040104C  call        foo (401000h)  
+00401051  add         esp,8  
+
+	return 0;
+00401054  xor         eax,eax  
+}
+00401056  mov         esp,ebp  
+00401058  pop         ebp  
+00401059  ret   
+{% endhighlight %}
+
+前两个操作都是把立即数送给a、b的地址中。dword ptr[a]就是指变量a所在的地址空间。
+
+接下来是把a和b都push到栈上也就是我们在静态栈帧图中看到的param1和param2。有趣的是，这里先push了b，后push了a。说明入栈顺序是从右到左的。汇编码的操作是，将变量值先移动到eax，然后push eax，这个我没理解是不是因为要跟eax对齐才这样做。有懂的朋友可以指点一下。
+
+参数准备完毕后，通过指令call foo调用了foo函数。需要注意的是，这里藏着一个implicit的压栈动作，系统将call之后的下一条指令地址的4字节入栈。在我的例子当中是0x00401059。因为call之后就要执行foo的代码，当foo函数返回时，需要知道从哪里继续执行上一个栈帧（这里是main函数）的
+
+接下来再看foo函数。一句一句看。
+
+{% highlight c++ %}
+void foo(int a, int b)
+{
+00401000  push        ebp  
+00401001  mov         ebp,esp  
+00401003  push        ecx  
+	int c = a+b;
+00401004  mov         eax,dword ptr [a]  
+00401007  add         eax,dword ptr [b]  
+0040100A  mov         dword ptr [c],eax  
+	printf("a + b = %d\n", c);
+0040100D  mov         ecx,dword ptr [c]  
+00401010  push        ecx  
+00401011  push        offset ___xi_z+34h (4020F4h)  
+00401016  call        dword ptr [__imp__printf (4020A0h)]  
+0040101C  add         esp,8  
+}
+0040101F  mov         esp,ebp  
+00401021  pop         ebp  
+00401022  ret  
+{% endhighlight %}
+
+先停下来验证一下对于EIP压栈的推断。进入到foo的第一条指令时，猜想EIP已经压栈。即foo函数返回后的位置。我们找到ESP，发现栈顶在0x0012ff68。发现此地址中保存的值0x00401051与main函数中的call foo下一条指令的地址完全相同。事实上这就是在执行call指令时implicit压入的返回地址。
+
+进入函数后的两个操作是典型的栈帧建立过程，push ebp是保存上一个调用过程的基地址。ebp中的值总是指向当前栈中最顶端栈帧的开始（顶端栈帧的最高位，注意栈是向低位增长的）。这样只要ebp+x就可以找到入参。ebp-y就能找到当前Frame的局部变量，保存上一个调用的ebp，为了当前Frame返回后，可以找到上一个Frame的这些变量。
+
+push ebp之后，还需要建立当前Frame的基地址，于是将当前栈顶指针保存到ebp，即mov ebp,esp。
+
+接下来push的ecx，其实是int c局部变量的一个栈占位。00401004-0040100A对a、b进行了加法计算，并保存到了变量c所在的地址空间。
+
+dword ptr[]是取某个地址空间内的值得操作，如在这里的dword ptr [c]，在0040100D的mov，可以看做是将c所在地址中的值（其实就是c的值，这样有点绕嘴）拷贝到ecx寄存器中。接下来又把它push到栈上，下图简单表达了当前栈的状态。
+
+<div class="img_row">
+	<img class="col three" src="{{ site.baseurl }}/img/stack_frame_with_foo.jpg" alt="" title="stack frame with foo"/>
+</div>
+
+此时寄存器中的值如下：
+EAX = 0000001E EBX = 00000000 ECX = 0000000A EDX = 00000000 ESI = 00000001 EDI = 00403374 EIP = 0040100D ESP = 0012FF60 EBP = 0012FF64 EFL = 00000206 
+
+对于printf的调用就跳过不说了。最后的add esp 8是将栈上的两个整形释放掉，一个是printf需要的常量字符串地址，另一个是c局部变量。栈空间的内存分配和销毁经常采用这种直接增减esp的方式。
+
+pop ebp将main函数的基地址放回到ebp寄存器中。最后的ret呼应了前面implicit压入的返回地址0x00401051。将执行权交给了main函数，foo函数栈帧彻底销毁。
+
+栈帧的生命周期是一直在动态变化的，应该时常观察寄存器的状态，更能反映出栈的实际工作方式。
+经过上述分析得到以下几点结论：
+
+1、参数在函数调用之前先由调用者入栈。
+2、隐式的压入了eip到栈中，虽然没有看到这样的指令。
+3、在一个栈帧内ebp是不动的，esp是一直移动的。
+
+当然这里对于要进行的exploit，最重要的肯定是eip的操作，因为eip会告诉cpu接下来执行些什么。在执行代码时，eip总是自动递增的，要思考的是，如何让cpu执行我们的代码呢？
+
+以上，待续。
+
+
