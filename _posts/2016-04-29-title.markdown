@@ -1,0 +1,8 @@
+---
+layout: post
+title: 开始之前
+date: 2016-04-29 15:09:00
+description: before the before
+---
+
+坚持写博客的缘由有千万种，不坚持写博客大多因为懒。：）
