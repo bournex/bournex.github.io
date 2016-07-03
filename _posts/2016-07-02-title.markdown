@@ -72,6 +72,12 @@ EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明�
 	<img class="col three" src="{{ site.baseurl }}/img/stack_frame_static.jpg" alt="" title="stack frame static"/>
 </div>
 
+>
+>
+
+###代码分析  
+>
+
 现有如下的C++程序
 
 {% highlight c++ %}
@@ -165,7 +171,7 @@ dword ptr[]是取某个地址空间内的值得操作，如在这里的dword ptr
 </div>
 
 此时寄存器中的值如下：
-EAX = 0000001E EBX = 00000000 ECX = 0000000A EDX = 00000000 ESI = 00000001 EDI = 00403374 EIP = 0040100D ESP = 0012FF60 EBP = 0012FF64 EFL = 00000206 
+EAX = 0000001E EBX = 00000000 ECX = 0000000A EDX = 00000000 ESI = 00000001 EDI = 00403374 EIP = 0040100D ESP = 0012FF60 EBP = 0012FF64 EFL = 00000206
 
 对于printf的调用就跳过不说了。最后的add esp 8是将栈上的两个整形释放掉，一个是printf需要的常量字符串地址，另一个是c局部变量。栈空间的内存分配和销毁经常采用这种直接增减esp的方式。
 
@@ -181,5 +187,3 @@ pop ebp将main函数的基地址放回到ebp寄存器中。最后的ret呼应了
 当然这里对于要进行的exploit，最重要的肯定是eip的操作，因为eip会告诉cpu接下来执行些什么。在执行代码时，eip总是自动递增的，要思考的是，如何让cpu执行我们的代码呢？
 
 以上，待续。
-
-
