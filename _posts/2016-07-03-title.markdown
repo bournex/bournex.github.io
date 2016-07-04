@@ -1,0 +1,79 @@
+---
+layout: post
+title: 指针和引用有什么区别？
+date: 2016-07-03 23:39:50
+description: what's the different between pointer and reference?
+---
+
+这个问题几乎每个cpp程序员都问过，得到的答案一般都是很含混的，譬如，基本一致，没啥区别等等。但我从来没得到过根本上的解答，实在是太好奇了，花点时间探究一下。
+
+想要知道他们的不同，就得从实现原理上下手。相比之下，指针还是有比较明确的定义的：占用与地址空间位宽相等内存的一个变量，保存了一个地址值。但引用的话，到目前为止我只知道是‘别名’，并不知道它的具体定义和实现方式。本着尊重标准引经据典的原则，查找了一下c++11白皮书，有关引用的实现，有这样一句话：
+
+“It is unspecified whether or not a reference requires storage”
+
+似乎c++标准并不打算管实现这件事儿，这样就只能看各个编译器厂商的决断了。
+
+先看看vs的编译器怎么搞的，下面是一段指针和变量声明的代码：
+
+{% highlight c++ %}
+00401003  sub         esp,0Ch  
+int a = 10;
+00401006  mov         dword ptr [a],0Ah  
+
+int &ra = a;
+0040100D  lea         eax,[a]  
+00401010  mov         dword ptr [ra],eax  
+int *pa = &a;
+00401013  lea         ecx,[a]  
+00401016  mov         dword ptr [pa],ecx  
+{% endhighlight %}
+
+这段代码声明了1个整形变量a，又声明了一个a的引用ra和指向a的指针pa。
+这里有必要铺垫一下lea指令，lea是load effective address的意思，翻译过来是加载有效地址。它的语义是，计算第二个操作数的有效地址，将这个地址放到第一个操作数中，第一个操作数通常是一个寄存器。所以这两个语句可以理解为：
+0040100D	取得变量a的地址，放到eax寄存器中。
+00401010 	将eax中的值保存到ra指向的地址
+那么ra在哪儿呢？刚进入函数的sub esp, 0Ch就已经将a、ra、pa的空间分配好了，dword ptr[ra] 就等同于ebp-8（-4是变量a，-12是pa）。
+
+好了，这下我们知道了，引用是占了空间的。而且跟指针一样占用了4字节。（我是在vs2010上尝试的）
+
+有意思的来了，观察下面pa的两条指令，除了寄存器换成了ecx，pa跟ra的声明和赋值完全一样。
+
+有一种说法是跟编译器的实现相关，于是利用手里仅有的资源，我在mac上用llvm又试了一下，反汇编代码如下。
+
+{% highlight c++ %}
+....
+0x100000f38 <+8>:  leaq   -0x14(%rbp), %rax
+....
+0x100000f4a <+26>: movl   $0xa, -0x14(%rbp)
+0x100000f51 <+33>: movq   %rax, -0x20(%rbp)
+0x100000f55 <+37>: movq   %rax, -0x28(%rbp)
+{% endhighlight %}
+
+虽然语法上与intel assembly有些不同，但还是很容易理解的。第一句是将变量a的地址放置到rax寄存器中，第二句是给a赋值为10，第三第四句则是ra和pa的赋值。（ATT的语法看的好晕），这次连寄存器都没换，除了取ra和pa的地址，两条指令完全一样。gcc就不列了，尝试过也一样。
+
+那到这儿基本上最初的问题已经有答案了，就大多数编译器来说，引用的实现是占用空间的，并且基本与指针一致，占用与当前架构位宽相同的位数。但是一个答案会引出两个问题：
+
+什么情况下会有不需要占用空间的实现呢？如果能实现应该是怎样实现的？
+既然指针和引用的实现方式基本一致，那为什么需要引用呢？直接用指针不就行了？
+
+第一个问题我现在也回答不了，但是主流的编译器都这么实现肯定还是有道理的。
+第二个问题，在Stroustrup的blog上找到了答案：
+
+"C++ inherited pointers from C, so I couldn't remove them without causing serious compatibility problems. References are useful for several things, but the direct reason I introduced them in C++ was to support operator overloading."
+{% highlight c++ %}
+void f1(const complex* x, const complex* y)	// without references
+{
+	complex z = *x+*y;	// ugly
+	// ...
+}
+
+void f2(const complex& x, const complex& y)	// with references
+{
+	complex z = x+y;	// better
+	// ...
+}
+{% endhighlight %}
+
+BJ老爷子为C++添加引用的原因真是令人感动。
+
+以上。

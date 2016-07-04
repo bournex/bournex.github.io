@@ -6,15 +6,14 @@ description: exploit and stack frame
 ---
 
 
-###前置知识         
->
+###前置知识  
 
 - asm
 - register
 - stack
 
-####**asm**     
->
+####asm  
+
 
 汇编语言有两种，一种是intel语法，一种是AT&T语法。两种语法有一些区别，比如intel的mov指令的src参数在右，dest参数在左；而AT&T相反。详细的查手册吧，下面将采用intel语法描述。
 
@@ -38,8 +37,8 @@ description: exploit and stack frame
 
 以上基本都是对intel manual的翻译，回顾一下这些指令。
 
-####**register**
->
+####register  
+
 
 根据硬件架构的不同，寄存器的数量和用途也会有些区别，下面主要用到这几个寄存器
 
@@ -56,7 +55,8 @@ description: exploit and stack frame
 EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明参考[Intel® 64 and IA-32 Architectures Software Developer’s Manuals  3.4.1节](http://119.90.25.40/www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-1-manual.pdf)。
 
 
-####**stack**
+####stack  
+
 >
 
 广义的栈指一种LIFO的数据结构，通常具有push和pop两个操作，push将数据压入栈顶，pop将数据从栈顶弹出，整个操作就像装弹夹和射击过程中弹夹的状态。对于操作系统，栈结构要比弹夹复杂一些，后面提到的栈都是操作系统层面的栈。
@@ -171,6 +171,7 @@ dword ptr[]是取某个地址空间内的值得操作，如在这里的dword ptr
 </div>
 
 此时寄存器中的值如下：
+
 EAX = 0000001E EBX = 00000000 ECX = 0000000A EDX = 00000000 ESI = 00000001 EDI = 00403374 EIP = 0040100D ESP = 0012FF60 EBP = 0012FF64 EFL = 00000206
 
 对于printf的调用就跳过不说了。最后的add esp 8是将栈上的两个整形释放掉，一个是printf需要的常量字符串地址，另一个是c局部变量。栈空间的内存分配和销毁经常采用这种直接增减esp的方式。
