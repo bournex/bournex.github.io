@@ -74,6 +74,6 @@ void f2(const complex& x, const complex& y)	// with references
 }
 {% endhighlight %}
 
-BJ老爷子为C++添加引用的原因真是令人感动。
+一个主要目的就是，希望使用者在想达到指针型参数效果的同时，又不用重载一个指针类型的函数。所以对使用者来说，除了书写上的不同外，传参、多态等特性都可以用引用代替指针来实现。
 
 以上。

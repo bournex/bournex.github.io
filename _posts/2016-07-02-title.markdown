@@ -4,16 +4,15 @@ title: exploit之栈帧
 date: 2016-07-02 15:09:00
 description: exploit and stack frame
 ---
+>
+>
 
+###前置知识		
+>  
 
-###前置知识  
-
-- asm
-- register
-- stack
-
-####asm  
-
+###asm	  
+>
+>
 
 汇编语言有两种，一种是intel语法，一种是AT&T语法。两种语法有一些区别，比如intel的mov指令的src参数在右，dest参数在左；而AT&T相反。详细的查手册吧，下面将采用intel语法描述。
 
@@ -37,8 +36,9 @@ description: exploit and stack frame
 
 以上基本都是对intel manual的翻译，回顾一下这些指令。
 
-####register  
+###register  
 
+>
 
 根据硬件架构的不同，寄存器的数量和用途也会有些区别，下面主要用到这几个寄存器
 
@@ -55,18 +55,18 @@ description: exploit and stack frame
 EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明参考[Intel® 64 and IA-32 Architectures Software Developer’s Manuals  3.4.1节](http://119.90.25.40/www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-1-manual.pdf)。
 
 
-####stack  
+###stack frame
 
 >
 
 广义的栈指一种LIFO的数据结构，通常具有push和pop两个操作，push将数据压入栈顶，pop将数据从栈顶弹出，整个操作就像装弹夹和射击过程中弹夹的状态。对于操作系统，栈结构要比弹夹复杂一些，后面提到的栈都是操作系统层面的栈。
 
-通常来说，在虚拟内存空间中，栈以线性方式实现，栈顶在低地址，栈底在高地址。
+通常来说，**在逻辑内存空间中，栈以线性方式实现，栈顶在低地址，栈底在高地址。**
 以上作为对基础的回顾，详细的可以到wiki查找。
 
 在最初我们可以基本将栈帧等同于一个处于执行状态的函数。
 
-下图展示了栈帧的静态状态
+下图展示了栈帧的静态状态  
 
 <div class="img_row">
 	<img class="col three" src="{{ site.baseurl }}/img/stack_frame_static.jpg" alt="" title="stack frame static"/>
@@ -78,7 +78,7 @@ EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明�
 ###代码分析  
 >
 
-现有如下的C++程序
+现有如下的C++程序  
 
 {% highlight c++ %}
 void foo(int a, int b)
@@ -158,7 +158,7 @@ void foo(int a, int b)
 
 先停下来验证一下对于EIP压栈的推断。进入到foo的第一条指令时，猜想EIP已经压栈。即foo函数返回后的位置。我们找到ESP，发现栈顶在0x0012ff68。发现此地址中保存的值0x00401051与main函数中的call foo下一条指令的地址完全相同。事实上这就是在执行call指令时implicit压入的返回地址。
 
-进入函数后的两个操作是典型的栈帧建立过程，push ebp是保存上一个调用过程的基地址。ebp中的值总是指向当前栈中最顶端栈帧的开始（顶端栈帧的最高位，注意栈是向低位增长的）。这样只要ebp+x就可以找到入参。ebp-y就能找到当前Frame的局部变量，保存上一个调用的ebp，为了当前Frame返回后，可以找到上一个Frame的这些变量。
+**进入函数后的两个操作是典型的栈帧建立过程**，push ebp是保存上一个调用过程的基地址。ebp中的值总是指向当前栈中最顶端栈帧的开始（顶端栈帧的最高位，注意栈是向低位增长的）。这样只要ebp+x就可以找到入参。ebp-y就能找到当前Frame的局部变量，保存上一个调用的ebp，为了当前Frame返回后，可以找到上一个Frame的这些变量。
 
 push ebp之后，还需要建立当前Frame的基地址，于是将当前栈顶指针保存到ebp，即mov ebp,esp。
 
@@ -185,6 +185,8 @@ pop ebp将main函数的基地址放回到ebp寄存器中。最后的ret呼应了
 2、隐式的压入了eip到栈中，虽然没有看到这样的指令。
 3、在一个栈帧内ebp是不动的，esp是一直移动的。
 
-当然这里对于要进行的exploit，最重要的肯定是eip的操作，因为eip会告诉cpu接下来执行些什么。在执行代码时，eip总是自动递增的，要思考的是，如何让cpu执行我们的代码呢？
+当然这里对于要进行的exploit，最重要的肯定是eip的操作，因为eip会告诉cpu接下来执行些什么。在执行代码时，eip总是自动递增的，要思考的是，如何让cpu执行我们的代码呢。
 
 以上，待续。
+
+
