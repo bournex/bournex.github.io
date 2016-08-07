@@ -7,9 +7,8 @@ permalink: /about/
 <img class="col one right" src="/img/prof_pic.jpg">
 
 <br/>
-<br/>
-<br/><br/><br/><br/><br/><br/><br/>
-oh 我是一个码农。
+<br/><br/><br/><br/><br/>
+Oh, 我是一个码农。
 <br/><br/>
 <hr/>
 <br/>
