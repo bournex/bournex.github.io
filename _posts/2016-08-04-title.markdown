@@ -1,6 +1,6 @@
 ---
 layout: post  
-title: 理解asio异常  
+title: 理解asio/tcp异常  
 date: 2016-08-04 23:25:40  
 description: learning boost asio error handling.  
 ---
@@ -10,43 +10,51 @@ description: learning boost asio error handling.
 
 最近用boost::asio封装了一个基于私有协议通信库（[SimpleTCP](https://github.com/bournex/simpletcp)），所以记录一下对异常处理的点滴分析，也有助于分析复杂的网络问题。理解这个需要有些TCP协议知识和socket编程基础。概念不清楚的可以读详解册2第18章。由于我使用了asio里的io_services异步模型，所以以下的分析会跟这个有关。  
 
+### 常见错误码分析   
+
+>
 
 **boost::asio::error::eof（2）**  
 End of file or stream.  
 
-> 最常见的错误。在asio中，通常会通过async_receive注册一个对socket的数据接收的异步事件到io_services。只有两种情况你注册的回调会被调用：1、收到数据，2、收到异常。eof就是由于对端调用了shutdown关闭了发送通道，当前进程收到了eof事件，意为在当前的socket上，没有再接收数据的必要了（对端已关闭，根本不会再发任何数据）。
-> 需要注意的是，要认识到tcp的全双工特性，即使收到了这个消息，当前进程依然可以使用本地socket进行发送，只要本地还没有调用shutdown。虽然实际应用中，通常不会进行单边通信。
+最常见的错误。在asio中，通常会通过async_receive注册一个对socket的数据接收的异步事件到io_services。只有两种情况你注册的回调会被调用：1、收到数据，2、收到异常。eof就是由于对端调用了shutdown关闭了发送通道，当前进程收到了eof事件，意为在当前的socket上，没有再接收数据的必要了（对端已关闭，根本不会再发任何数据）。
+需要注意的是，要认识到tcp的全双工特性，即使收到了这个消息，当前进程依然可以使用本地socket进行发送，只要本地还没有调用shutdown。虽然实际应用中，通常不会进行单边通信。
 
 
 **boost::asio::error::bad_descriptor（10009）**  
 Bad file descriptor.  
 
-> 这个错误跟10053的关系很接近，区别在于发生10009错误的地方，socket已经被关闭了。对于使用者来说，就是当前进程对socket调用了close（windows是closesocket），使内核销毁了socket句柄。处于eof状态的socket，内核句柄还在，你可以使用这个socket重新调用connect重连对端。但是close过后的socket就必须要重新创建才能再次使用。所以需要做自动重连逻辑的话，就不需要对eof状态的socket调用close，可直接复用socket。
+这个错误跟10053的关系很接近，区别在于发生10009错误的地方，socket已经被关闭了。对于使用者来说，就是当前进程对socket调用了close（windows是closesocket），使内核销毁了socket句柄。处于eof状态的socket，内核句柄还在，你可以使用这个socket重新调用connect重连对端。但是close过后的socket就必须要重新创建才能再次使用。所以需要做自动重连逻辑的话，就不需要对eof状态的socket调用close，可直接复用socket。
 
 **boost::asio::error::connection_aborted（10053）**  
 A connection has been aborted.  
 
-> 很好理解，就是对本地的已经处于eof状态的socket进行写操作。
+很好理解，就是对本地的已经处于eof状态的socket进行写操作。至于本端的socket是如何进入到eof状态的。下面会有说明。
 
 **boost::asio::error::connection_reset（10054）**  
 Connection reset by peer.  
 
-> 注意与10053有点像，但其实很容易区分。因为10053通常是在本端写eof状态的socket得到的，是主动产生的。而10054通常是在async_receive的事件通知中被动得到的。
-> 这个错误的含义是，对端对established状态的socket进行了异常断开，比如直接结束进程。所以在发送逻辑中，是没有必要判断这个错误码的，因为send永远也得不到这个错误。
+注意与10053有点像，但其实很容易区分。因为10053通常是在本端写eof状态的socket得到的，是主动产生的。而10054通常是在async_receive的事件通知中被动得到的。
+这个错误的含义是，对端对established状态的socket进行了异常断开，比如直接结束进程。所以在发送逻辑中，是没有必要判断这个错误码的，因为send永远也得不到这个错误。
 
 **boost::asio::error::not_connected（10057）**  
 Transport endpoint is not connected.  
 
-> 当调用了异步连接接口async_connect后，如果回调函数还没有返回连接结果，就在这个socket调用发送接口，发送就会失败，并收到这个错误。其含义是当前系统已经很用力的在连接了，但是还不知道成功失败。我的处理方式是，在send之前先判断连接状态，在异步连接没有收到通知连接成功之前，发送需要失败掉。
+当调用了异步连接接口async_connect后，如果回调函数还没有返回连接结果，就在这个socket调用发送接口，发送就会失败，并收到这个错误。其含义是当前系统已经很用力的在连接了，但是还不知道成功失败。我的处理方式是，在send之前先判断连接状态，在异步连接没有收到通知连接成功之前，发送需要失败掉。
 
 **boost::asio::error::connection_refused（10061）**  
 Connection refused.  
 
-> 对端没有在指定的端口上有监听。通常在connect失败后返回。
+对端没有在指定的端口上有监听。通常在connect失败后返回。
 
 
+### TCP状态变迁分析   
+>
 
-从TCP状态变迁上来看  
+<div class="img_row">
+	<img class="col three caption" src="{{ site.baseurl }}/img/tcp_stat.jpg" alt="" title="stack frame static"/>
+</div>
+
 - 产生10061时，本地socket无状态，即netstat不可见。  
 - 产生10057时，本地socket为SYN_SENT状态，超时后对端会发送RST，socket变为无状态。  
 - 产生10054时，本地收到对端的RST，socket瞬间变为无状态。  
@@ -55,5 +63,27 @@ Connection refused.
 - 产生2时，进入CLOSE_WAIT状态，等待对方发FIN彻底关闭双工通信。  
 - 以上状态我没能完全观测到。因为我在操作时，双工通信经常是同时关闭的。  
 
+### 如何优雅地关闭TCP连接   
+>
 
-以上基本是比较容易混淆的错误码，其他的错误码都比较明确。在[SimpleTCP](https://github.com/bournex/simpletcp)中，我将2和10009映射成了同一个错误、将10053和10054映射成了同一个错误，这是因为[SimpleTCP](https://github.com/bournex/simpletcp)的使用者（需求来源）不需要知道这个区别。但是对于网络库的实现者是有必要知道的，因为在错误的地方判断错误的错误码，就像在火车站等一艘船。  
+如果没有正确理解socket的错误，其实就是没有理解tcp通信的原理。只有知道原理，才能在出现问题时立即就能知道底层发生了什么。  
+在TCP状态变迁的复杂就在于连接建立和断开的过程，相比之下断开又更复杂一点。要理解断开的逻辑，首先要理解TCP的SO_LINGER选项以及shutdown和close这两个api的区别。  
+
+**SO_LINGER与SO_DONTLINGER**  
+SO_LINGER选项可以选择是否在socket关闭的时候，先将发送缓冲区中的数据发送走再关闭连接，以及最长的等待发送完毕的等待时间。试想这样的情景，客户端上传一个文件到服务器，但是没开启SO_LINGER选项，在最后一个send调用返回后，客户端就调用close关闭了socket。如果此时发送缓冲区内还有数据未发送则被丢弃。服务器收到的不是一个完整的文件。这就造成了关闭过程的不优雅。以前我们的做法是并没有采用socket的SO_LINGER选项，而是应用层做了反馈机制，等到反馈后再关闭，但这样不仅麻烦，而且低效。  
+另外还有一个SO_DONTLINGER选项，这个的含义是开启LINGER，但是用户不想设置超时时间，由操作系统发送完缓冲区数据后自行关闭，避免了因超时时间设置不当导致的SO_LINGER失效。  
+
+**shutdown与close(closesocket)**  
+shutdown有两个参数，一个是socket句柄，另一个是操作flag，有三种操作，关闭读、关闭写、和全关闭。  
+
+如果你调用了关闭写，本端将不能再调用send在此socket上发送数据，同时，底层会发送FIN包给对端，如果设置了LINGER选项，会先发送完数据再发FIN，表示本端想要单边关闭连结。此后本端对这个socket的send将返回eof。如果flag为关闭读，对本端socket的读将返回eof，不会触发网络上的通信，只涉及到本端操作系统对socket的禁止读标记。  
+
+当tcp连结建立完成后，通信就是对等的了，在底层不会很明显的区分服务器与客户端，所以以上原理适用于tcp通信的任何一方。
+
+close来的就要硬气一些，虽然它也会调用shutdown，也会响应LINGER相关的设定，但它比shutdown多做了一步，把socket内核对象销毁掉了。也就是说，它不能实现socket的单边关闭。另外[在微软的msdn中](https://msdn.microsoft.com/en-us/library/windows/desktop/ms738547(v=vs.85).aspx)提到，closesocket虽然对发送缓冲区的LINGER有效，但是对端未完成的发送仍然可能遭到武断地结束。还用上面的发送文件举例，如果双方同时互相发送文件且都设置了LINGER，最先完成发送的调用了close会导致对端无法完成剩余的发送。所以最优雅的实践，还是要在closesocket之前，先显示地调用shutdown关闭写通道。  
+
+### 总结  
+
+>
+
+以上基本是比较容易混淆的错误码和原理分析，其他的错误码都比较明确。在[SimpleTCP](https://github.com/bournex/simpletcp)中，我将2和10009映射成了同一个错误、将10053和10054映射成了同一个错误，这是因为[SimpleTCP](https://github.com/bournex/simpletcp)的使用者（需求来源）不需要知道这个区别。但是对于网络库的实现者是有必要知道的，因为在错误的地方判断错误的错误码，就像在火车站等一艘船。  
