@@ -1,0 +1,109 @@
+---
+layout: post  
+title: volatile与原子操作  
+date: 2016-08-23 20:51:08  
+description: about volatile & atomic operations.  
+---
+>
+
+最近用到volatile，花了点时间了解一下。  
+volatile是从c就开始有的关键字，是cv操作符中的‘v’，其作用主要是强制不要对变量进行cache优化，使程序对变量的访问必须进行访存操作。  
+在[这个示例](http://publications.gbdirect.co.uk/c_book/chapter8/const_and_volatile.html)里，阐述了c语言最开始添加volatile的初衷。  
+
+#### volatile修饰的变量到底是否线程安全？  
+>  
+
+由于volatile的这种特点，使人不由得联想到原子操作。比如最开始分不太清，在查看公司以前的代码时，很多worker线程的退出标记都是volatile修饰的bool类型。比如下面这段出镜率很高的代码：
+
+{% highlight c++ %}
+volatile bool quit = false;
+
+DWORD CALLBACK WorkerThread(LPVOID lpParameter)
+{
+	while (!quit)
+	{
+		/* do work*/  
+	}
+	return 0;
+}
+{% endhighlight %}
+
+volatile的作用是提供读取数据是，数据源的唯一性，让CPU cache不要拷贝这个数据的副本，必须要去内存拿。假设有线程改了这个变量，也必须写回内存中，之后所有线程读到的都是修改后的这个变量。这保证了线程可以即刻读取到变量的真实值，而不是缓存值。在编译器优化的时候，极容易对循环中的变量进行缓存优化。比如上例中的quit变量。如果没有volatile修饰，可能出现，在主线程中设置了quit=true后线程不会即刻退出的局面。  
+这种用法很容易使人误认为，volatile为变量提供了线程安全特性。实际上volatile的初衷并不是线程安全。
+
+wiki里有如下描述:  
+
+> Operations on volatile variables are not atomic, nor do they establish a proper happens-before relationship for threading. This is specified in the relevant standards (C, C++, POSIX, WIN32), and volatile variables are not threadsafe in the vast majority of current implementations. Thus, the usage of volatile keyword as a portable synchronization mechanism is discouraged by many C/C++ groups.
+
+值得注意的是，在我们的代码中，volatile在多线程中的使用情景，多数是类似quit变量这样，N多个线程来读取，只有一个线程，通常是主线程来修改它，使worker线程得以退出。对于一个变量而言，多个线程读取是没有问题的，就像const变量。如果有一个线程写，其他来读，或许....也是没什么问题的。（下面讨论）。但是多个来写，显然是不行的。用代码举例来说：
+
+{% highlight c++ %}
+volatile int a = 0;
+const int n = 5000;
+
+DWORD WorkerThread(LPVOID lpParameter)
+{
+	int i = 0;
+	while (i<n)
+	{
+		a++;
+	}
+	return 0;
+}
+{% endhighlight %}
+
+在多核计算机上，如果两个线程对a进行++操作，最后得到的极可能不是10000。两个线程同时读取到值为0的a后，同时进行++操作使其为1，写会内存后，无论写顺序如何，a都是为1。此时变量a是否是volatile对结果没有影响。  
+
+#### 基于反汇编的分析  
+>
+
+再看下面这段程序，分别是对四个32位或64位变量的赋值：
+
+{% highlight c++ %}
+
+; 10   : 	int a = 0;
+; 11   : 	volatile int b = 0;
+; 12   : 	long long c = 0;
+; 13   : 	volatile long long d = 0;
+
+; 16   : 	for (int i=0; i<10; i++)
+; 17   : 	{
+; 18   : 		a++;
+; 19   : 		b++;
+
+  00025	01 7c 24 0c	 add	 DWORD PTR _b$[esp+24], edi
+
+; 20   : 		c++;
+
+  00029	03 c7		 add	 eax, edi
+  0002b	13 ce		 adc	 ecx, esi
+
+; 21   : 		d++;
+
+  0002d	01 7c 24 10	 add	 DWORD PTR _d$[esp+24], edi
+  00031	11 74 24 14	 adc	 DWORD PTR _d$[esp+28], esi
+  00035	2b d7		 sub	 edx, edi
+  00037	75 ec		 jne	 SHORT $LL3@wmain
+
+; 22   : 	}
+{% endhighlight %}
+
+这是32位程序的汇编码，在代码中被volatile修饰的b、d变量都进行了访存操作。但是未进行修饰的c变量，则只涉及对寄存器的add操作。这便是volatile的初衷。
+
+当对一个volatile long long类型的变量进行++时，实际上用了两条指令，而指令之间是可能随时产生线程切换的。这就可能造成其他线程读取到脏数据。然后想到，可能是跟程序位数有关，随后又生成了64位的汇编码，发现变量d的赋值变成在一条语句内完成了。这样看起来似乎是原子的了。  
+
+#### 难不成一条指令还能执行一半？答案是肯定的  
+>  
+
+（内心哔了狗）  
+
+然后我找到了这篇文章，"[关于单CPU，多CPU上的原子操作](https://software.intel.com/zh-cn/blogs/2010/01/14/cpucpu/)"一文中提到，多核时，单条指令也可能会存在非原子性的问题，当然他还给出了解决方案 - 使用intel的lock指令前缀。为了查找理论依据，找到了[知乎上@Celia Zou的答案](http://www.zhihu.com/question/28092666)，通常来讲大多数指令都是可以看做原子化的，@CeliaZou的答案给出了反例。  
+
+所以在最开始的示例代码中的quit变量，实际上是凑巧了，没有出现问题。作为一个bool变量，其赋值在我们的64位cpu上可以在一个指令中完成。不过即使是32位程序改用long long来声明这个变量，也不会导致什么大问题，大不了晚一个指令周期或N个时间片后退出，程序员几乎感受不到这种线程不安全。  
+
+至此基本有了结论，欢迎补充  
+1、volatile跟线程安全不沾边，如果所有线程都读但是没人写是可以的（那跟const有啥区别？！），所以请不要学习我司的做法。 _(:з」∠)_  
+2、多线程写时，不是所有的指令都是原子的，需要原子特性时请老实加锁。  
+3、多线程写时，即使看起来像是原子操作的，也要看程序位数、CPU架构、编译器优化等等，所以请老实加锁。  
+
+以上
