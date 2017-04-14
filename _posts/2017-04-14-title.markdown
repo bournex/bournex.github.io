@@ -1,0 +1,255 @@
+---
+layout: post  
+title: NVidia GPU 解码实现  
+description: nvidia cuda/nvcuvid codec implement  
+---
+>
+
+照顾一下刚接触编解码的同学，先看以下几个问题
+
+**为啥要对视频进行编解码？**
+
+因为视频是连续的图片组成的，如果不进行编码，图像数据会很大，e.g 1080p的一帧RGB图有6MB，即使是YUV420也有3MB，那么按照PAL制式标准，播放1080p的视频就有6 * 24.96 ≈ 150MB/s = 1200Mb/s，这对于当前网络传输和存储环境几乎是扯淡级的压力。而恰巧图像中又有可以被压缩的空间，所以要进行编码（压缩）和解码（解压缩）。
+
+**为啥要用GPU进行编解码？**
+
+这个要了解一下CPU和GPU的架构，CPU比较适合执行顺序的指令，核心会以此读取指令寄存器的内容进行执行，也就是说一个核每一时刻只能执行一条指令，4核也就同时执行4个指令而已。但GPU通常有成百上千个核心，并发量比CPU大很多，而且GPU被设计为数千核心同时进行乘法加法运算，正好与图像的海量像素相吻合，事实上GPU里的G就是graphic。当然也不是说CPU就比GPU差，CPU的定位决定了它的计算能力比较通用，且适合处理复杂的逻辑运算。
+
+**为啥要用NVidia的GPU编解码？**
+
+估计从产品角度来讲，没有更合适的了。技术无关不说。
+
+NVidia解码库
+
+
+NVidia设备就像其他设备一样提供了API编程接口，比较容易混淆的是cuda.dll和cudart.dll，一个是设备的API库，一个是设备的运行时库。这两个比较像开发中的系统API和c函数库的关系。cuda.dll提供了最底层的接口，而cudart.dll是对cuda.dll接口的封装。使用cuda接口开发时要先创建一个context设备上下文，但是cudart把创建这个全局context的过程给封装了，也就是说你不用创建context。如果你在某个线程上调用cuda接口创建了一个new context，那么这个new context只会在当前线程的cudart调用中使用，其他线程还会使用全局的那个context。当使用cuda时，context要在多线程中使用，需要自己加锁，但cudart接口便不用。
+
+还有一个区别，cuda库在初始化了之后，会根据你的调用选择性的加载模块，而cudart库则一次性全部加载，这会影响你的GPU资源占用。所以了解cuda和cudart的区别对于在GPU上开发很重要。有兴趣的可以看[Difference between the driver and runtime APIs](https://docs.nvidia.com/cuda/cuda-runtime-api/driver-vs-runtime-api.html#driver-vs-runtime-api).
+
+在我实现的过程中，考虑到性能，使用了cuda库和nvcuvid库，没有使用cudart库。其中nvcuvid是GPU解码库，他依赖cuda库.
+
+nvcuvid中有三个概念：  
+1. VideoSource		视频源  
+2. VideoParser		视频解析  
+3. VideoDecoder		视频解码  
+
+VideoSource用于从文件读取编码后的文件流，由于我的应用中直接读取的h264流，所以这部分我没用到，其调用也很简单，就是传入视频文件路径，读取文件流。  
+VideoParser用于解析流数据，将成块的流数据解构成独立的图像帧，在h264中对应的就是I、P、B帧。  
+VideoDecoder用于对解构后的数据帧进行解码。最终输出解码后的NV12数据。
+
+目前NVidia的解码只支持输出NV12格式的YCbCr数据。
+
+啰嗦够多了上代码了
+
+{% highlight c++ %}
+NvDecoder(unsigned int devidx = 0, unsigned int queuelen = 4）
+{
+	int ret = 0;
+
+	if (ret = cuInit(0))
+	{
+		FORMAT_FATAL("create init environment failed", ret);
+		return ret;
+	}
+	if (!cuCtx)
+	{
+		if (ret = cuCtxCreate(&cuCtx, 0, devidx))
+		{
+			FORMAT_FATAL("create context failed", ret);
+			throw ret;
+		}
+	}
+
+	if (!cuCtxLock && (ret = cuvidCtxLockCreate(&cuCtxLock, cuCtx)))
+	{
+		FORMAT_FATAL("create context lock failed", ret);
+		throw ret;
+	}
+
+	/**
+	 *Description: create video parser
+	 */
+	CUVIDPARSERPARAMS videoParserParameters			= {  };
+	/* my sample only support h264 stream */
+	videoParserParameters.CodecType					= cudaVideoCodec_H264;
+	/* stream cached length */
+	videoParserParameters.ulMaxNumDecodeSurfaces	= (qlen<<1);
+	/* delay for 1 */
+	videoParserParameters.ulMaxDisplayDelay			= 1;
+	/* user data */
+	videoParserParameters.pUserData					= this;
+	/* callbacks */
+	videoParserParameters.pfnSequenceCallback		= HandleVideoSequenceProc;
+	videoParserParameters.pfnDecodePicture			= HandlePictureDecodeProc;
+	videoParserParameters.pfnDisplayPicture			= HandlePictureDisplayProc;
+
+	if (ret = cuvidCreateVideoParser(&cuParser, &videoParserParameters))
+	{
+		FORMAT_FATAL("create video parser failed", ret);
+		throw ret;
+	}
+}
+{% endhighlight %}
+
+NvDecoder是我封装的解码类，在构造函数的第一个参数是GPU卡的序号，这个可以从系统设备管理器中获取到，从0开始。第二个参数是队列的长度，后面会用到。
+首先对cuda库进行了初始化，然后创建了一个context和context的同步锁。最后创建了一个VideoParser。创建Parser这里有几个参数比较关键。
+
+
+**videoParserParameters.CodecType**  
+是解码器类型，我的模块只需要解码H264，实际上支持的解码种类还有很多，见nvcuvid头文件。
+
+**videoParserParameters.ulMaxNumDecodeSurfaces**   
+这个是缓存的流数据数量，我的理解是解构后的帧数，该参数不影响显存占用。
+
+最后的三个回调函数分别是图像序列回调（sequence）、图像解构回调（decode）和图像解码后回调（display），后面的代码会看到。
+
+{% highlight c++ %}
+int HandleVideoSequence(CUVIDEOFORMAT *pVideoFormat)
+{
+	int ret = 0;
+
+	/**
+	 * Description: video sequence change
+	 */
+	if (cuDecoder && (ret = cuvidDestroyDecoder(cuDecoder)))
+	{
+		FORMAT_WARNING("destroy decoder failed", ret);
+	}
+
+	cuDecoder = NULL;
+
+	CUVIDDECODECREATEINFO videoDecodeCreateInfo = { 0 };
+	memset(&videoDecodeCreateInfo, 0, sizeof(CUVIDDECODECREATEINFO));
+	/* codec type */
+	videoDecodeCreateInfo.CodecType				= pVideoFormat->codec;
+
+	/* video source resolution */
+	videoDecodeCreateInfo.ulWidth				= pVideoFormat->coded_width;
+	videoDecodeCreateInfo.ulHeight				= pVideoFormat->coded_height;
+
+	/* currently only support 420 NV12 */
+	videoDecodeCreateInfo.ChromaFormat			= pVideoFormat->chroma_format;
+	videoDecodeCreateInfo.OutputFormat			= cudaVideoSurfaceFormat_NV12;
+
+	/* adapte with interlacing */
+	videoDecodeCreateInfo.DeinterlaceMode		= cudaVideoDeinterlaceMode_Adaptive;
+
+	/* decoded video resolution */
+	videoDecodeCreateInfo.ulTargetWidth			= cWidth	= pVideoFormat->coded_width;
+	videoDecodeCreateInfo.ulTargetHeight		= cHeight	= pVideoFormat->coded_height;
+
+	/* inner decoded picture cache buffer */
+	videoDecodeCreateInfo.ulNumOutputSurfaces	= (qlen);
+
+	/* using dedicated video engines */
+	videoDecodeCreateInfo.ulCreationFlags		= cudaVideoCreate_PreferCUVID;
+
+	/* inner decoding cache buffer */
+	videoDecodeCreateInfo.ulNumDecodeSurfaces	= (qlen<<1);
+
+	/* context lock */
+	videoDecodeCreateInfo.vidLock				= cuCtxLock;
+
+	/* ulNumOutputSurfaces and ulNumDecodeSurfaces is the major param which will affect
+	VRAM usage, ulNumOutputSurfaces gives the number of frames can map concurrently in
+	display	callback, ulNumDecodeSurfaces represent nvidia decoder inner buffer upper
+	bound. if decoder is used in a VRAM limited condition, try to adjust the param above */
+
+	/**
+	 * Description: creating decoder
+	 */
+	if (ret = cuvidCreateDecoder(&cuDecoder, &videoDecodeCreateInfo))
+	{
+		/**
+		 * Description: create decoder failed
+		 */
+		FORMAT_FATAL("create video decoder failed", ret);
+		cuDecoder = NULL;
+	}
+
+	return ret ? NV_FAILED : NV_OK;
+}
+
+{% endhighlight %}
+
+sequence回调只有当第一帧输入或输入的流数据发生变化时才会被调用，比如输入的1080p视频解码完了，没有销毁Nvdecoder，又输入了一个720p的视频，此时sequence就又会被调用。当sequence需要创建（或重新创建）VideoDecoder。decoder的参数比较多，挑关键的说一下：
+
+**videoDecodeCreateInfo.OutputFormat**  
+由于NVidia只支持输入NV12，所以这里只能赋值为cudaVideoSurfaceFormat_NV12
+
+**videoDecodeCreateInfo.DeinterlaceMode**  
+现在的数字相机，多数都进行了逐行扫描，所以这个比较无所谓。关心的朋友可以看看枚举定义
+
+**videoDecodeCreateInfo.ulNumOutputSurfaces**  
+这个是你可以在display回调中锁定的帧数，如果拿到NV12数据后要做缓存队列，这个至少要大于你的队列长度。
+
+**videoDecodeCreateInfo.ulCreationFlags**  
+我赋值了cudaVideoCreate_PreferCUVID，意思是使用cuvid专用硬解码器解码，也可以选择使用cuda核解码。
+
+**videoDecodeCreateInfo.ulNumDecodeSurfaces**  
+解码器内部用于倒腾数据的NV12队列长度，这个一定要比ulNumOutputSurfaces长，不然解码数据你一帧也取不出来。
+
+长注释说明了ulNumOutputSurfaces和ulNumDecodeSurfaces的关系，请无视渣英语。
+
+最后就是对解码数据的处理代码了。
+
+{% highlight c++ %}
+int HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo)
+{
+	do
+	{
+		/**
+		 * Description: ensure there's room for new picture
+	     */
+		unsigned int nlen = 0;
+		{
+			boost::mutex::scoped_lock(qmtx);
+			nlen = qpic.size();
+		}
+
+		if (nlen < qlen)
+			break;	/* free space */
+		else
+#ifdef WIN32
+			Sleep(50);
+#else
+			usleep(50*1000);
+#endif
+
+	} while (1);
+
+	CUVIDPROCPARAMS videoProcessingParameters	= { 0 };
+	videoProcessingParameters.progressive_frame = pDispInfo->progressive_frame;
+	videoProcessingParameters.second_field		= 0;
+	videoProcessingParameters.top_field_first	= pDispInfo->top_field_first;
+	videoProcessingParameters.unpaired_field	= (pDispInfo->progressive_frame == 1);
+
+	CUdeviceptr		pSrc	= 0;
+	unsigned int	nPitch	= 0;
+
+	/**
+	 * Description: get decoded frame from inner queue
+	 */
+	int ret = 0;
+	while (ret = cuvidMapVideoFrame(cuDecoder, pDispInfo->picture_index, &pSrc,
+		&nPitch, &videoProcessingParameters))
+	{
+		FORMAT_WARNING("map decoded frame failed", ret);
+	}
+
+	boost::mutex::scoped_lock(qmtx);
+	qpic.push_back(CuFrame(cWidth, cHeight, nPitch, pSrc, pDispInfo->timestamp));
+
+	return ret ? NV_FAILED : NV_OK;
+}
+
+{% endhighlight %}
+
+这段代码调用了cuvidMapVideoFrame，但是没有调用cuvidUnmapVideoFrame，因为我对NV12数据进行了缓存，push到qpic队列里了。当帧数据从队列中pop掉时，才调用了unmap将解码图像空间归还给nvcuvid。
+
+在display中map出来的图像数据中，需要注意的是，与CPU解码后的width4字节对齐不同，GPU上解码出来的NV12数据，是按照512字节对齐的。拿1080p视频举例，其实际数据长度是((2048 * 1080) * 3) >> 1，所以不要计算错误显存空间的大小。
+
+如果需要将解码后的图像拷贝到CPU空间进行计算，需要调用cuda的一个函数：cuMemcpy2D
+我实现的NvDecoder代码在Github上的[NvCodec.h](https://github.com/bournex/NvGpuDecoder/blob/master/NvGpuCodec/NvCodec.h)中
+
+以上
