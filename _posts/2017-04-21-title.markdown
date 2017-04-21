@@ -1,0 +1,167 @@
+---
+layout: post  
+title: ratio与chrono  
+description: c++11 之 ratio & chrono  
+---
+>
+提笔
+
+#ratio  
+先来看一下ratio，翻译成中文是比率的意思，就是一个分数。使用也很简单，ratio有两个模板参数，一个是分子，一个是分母。而分子和分母都为1的ratio，就是单位值。    
+ratio<1,100>的含义就是1/100个单位值，也就是百分之一。  
+在数学中我们都知道，一个分数在没有上下文语境的情况下，没有什么意义。ratio也一样。通常ratio用来定义一个基本单位类型，比如  
+{% highlight c++ %}
+typedef ratio<3600,1> hour;
+{% endhighlight %}  
+那么hour(1)就代表3600个基本单位，在这里我们把基本单位看做秒。
+事实上ratio也大量用在chrono的时间处理中。
+###通过ratio算术运算定义新ratio  
+ratio之间也支持算数运算，毕竟是分数，分数和分数的加减乘除其结果还是个分数，比如  
+{% highlight c++ %}
+typedef ratio<1000,1> one_thou;
+typedef ratio<1,1000> thou_percent;
+typedef ratio_multipy<one_thou, thou_percent> one_by_one;
+{% endhighlight %}
+one_by_one就是ratio<1,1>。
+
+#chrono  
+chrono是c++11的计时库
+首先我们来看看chrono中的几种类型。  
+##duration    
+顾名思义，是时间段的含义，是指从一个时刻到另一个时刻之间的差距。他的定义如下  
+{% highlight c++ %}
+template<class Rep, class Period> class duration;
+{% endhighlight %}  
+第一个模板参数Rep是representation，意思是用什么样的数值类型来表示时间段，Period则是Rep的单位值，没错，就是ratio。在chrono中，有几个预定义的duration模板类：  
+{% highlight c++ %}
+typedef duration<long, ratio<3600,1>> hours;
+{% endhighlight %}
+这个定义的含义是，用3600秒表示1单位的hours，并将其值保存在long类型中。  
+比如
+{% highlight c++ %}
+hours one_day(24);
+{% endhighlight %}  
+就声明了一个duration变量one_day。
+duration有一个count成员函数，可以返回其内部的值。上面的one_day.count();就会返回整数24。
+duration支持操作符重载，比如对两个duration相加，可以得到一个新的duration变量。  
+{% highlight c++ %}
+hours one_day_and_one_hour = one_day + hours(1);
+{% endhighlight %}  
+这句的含义可以这样理解，女朋友昨天说今天见你，今天你到了楼下，她又画了一小时妆才下楼的意思。结果当然是25小时。
+
+有时候，我们想知道等了女朋友总共多少秒了，也就是想把hours单位转换成seconds。那就需要用到chrono中的一个函数duration_cast。
+{% highlight c++ %}
+seconds one_day_and_one_hour = duration_cast<seconds>(one_day + hours(1));
+{% endhighlight %}  
+one_day_and_one_hour.count()就是90000秒。
+
+###不同精度的duration转换  
+有的时候我们需要从高精度向低精度转换，但是又不想丢掉精度数据。这就需要稍微变化一下duration_cast的模板参数，比如：
+{% highlight c++ %}
+microseconds sec(333);
+double how_many_hours = duration_cast<duration<double>>(sec);
+{% endhighlight %}  
+我们实例化了一个以double作为内部representation的duration类，将microseconds转换成double类型的，而duration的第二个模板参数ratio没有赋值，所以默认以秒作为单位值。最终得到结果0.000333秒。
+
+chrono中共定义了6个duration，分别是nanoseconds、microseconds、milliseconds、seconds、minutes和hours。你也可以定义自己的duration，比如：
+{% highlight c++ %}
+typedef duration<long, ratio<1800,1>> half_hours;
+typedef duration<long, ratio<86400,1>> days;
+{% endhighlight %}  
+###duration之间的运算  
+不同的duration类型之间，无须cast即可以进行算数操作，这是因为duration中已经保存了对单位值的比率，只需要乘以或除以相应的比率，就可以进行运算，这在chrono中已经实现了。
+{% highlight c++ %}
+half_hours hh(3);
+seconds sec(1000);
+seconds total = hh + sec;	// total = 3*1800/1 + 1000 = 6400
+{% endhighlight %}
+总体来说，还是比较简单的
+
+那现在基本已经掌握了duration的操作，我们再来看看下一个：
+###time_point 与clock  
+顾名思义，时间点，得感谢标准委员会，名字起得都很到位。
+由于time_point和clock是相互引用的，所以这里还需要提前介绍一下下一个概念clock。
+clock是时钟，每个时钟都有一个起始时间，我们叫做epoch。在time_point的模板参数里，第一个就是clock类型，其实time_point就是为了引用clock的这个起始时间，毕竟我们说一个时间点，总得说明是相对哪个时间来算的啊。
+比如，在chrono的system_clock中，epoch被定义为从1970年1月1日的1点0分0秒。
+time_point的第二个模板参数是duration，如果你要表示一个时间点是从epoch之后的多长时间，需要一个单位来表示，是用秒、毫秒还是天呢？这第二个参数的duration就是这个作用。
+看下标准库对time_point的声明：  
+{% highlight c++ %}
+template <class _Clock, class _Duration = typename _Clock::duration> class time_point;
+{% endhighlight %}  
+我的声明是从xcode版本的实现拷贝的，其他平台可能会参数名称的不同，但语法是相同的。
+从声明来看，脱离开clock来谈time_point是没有意义的。所以就引入了clock定义
+
+以system_clock为例，这次把整个声明贴出来
+{% highlight c++ %}
+class _LIBCPP_TYPE_VIS system_clock
+{
+public:
+    typedef microseconds                     duration;
+    typedef duration::rep                       rep;
+    typedef duration::period                 period;
+    typedef chrono::time_point<system_clock> time_point;
+    static _LIBCPP_CONSTEXPR_AFTER_CXX11 const bool is_steady = false;
+
+    static time_point now() _NOEXCEPT;
+    static time_t     to_time_t  (const time_point& __t) _NOEXCEPT;
+    static time_point from_time_t(time_t __t) _NOEXCEPT;
+};
+{% endhighlight %}  
+system_clock中将microseconds作为内部的计量单位，他保存数值的类型和ratio都与microseconds相同。而system_clock::time_point这个类型定义了与system_clock本身计量单位相同的一个time_point。听起来有点绕，实践一下：
+{% highlight c++ %}
+system_clock::time_point current = system_clock::now();
+{% endhighlight %}  
+通过调用system_clock的now静态方法，我们获得了当前时间current变量。根据system_clock的声明我们能知道，current内部保存了从1970年那个epoch到当前这一刻的微秒数。那我们怎么知道有多少微秒呢？回到time_point的定义，time_point内部有一个方法叫time_since_epoch()。
+{% highlight c++ %}
+system_clock::duration to_epoch = current.time_since_epoch();
+days day_to_epoch = duration_cast<days>(to_epoch);
+{% endhighlight %}
+第二句用到了我们前面自己创造的duration类型days，并获取到了从现在到epoch经过了多少天。是不是很好用？！  
+###time_point与duration的运算
+time_point也进行了很多重载。比如，两个time_point做差，就会得到一个时间段duration。一个time_point加上或减去一个duration，就会得到另一个time_point。这些计算都符合常识认知，就不列举了。但显然，两个time_point相加这样的操作是不会有的，因为没什么实际意义。  
+
+前面说了clock，在chrono中，定义了三种clock，system_clock、steady_clock、high_resolution_clock。  
+system_clock比后两者多了跟struct tm的转换，非c++的东西就不说了，想了解的可以看手册或者我的(代码)[https://github.com/bournex/cpp11/blob/master/chrono/cpptest.cpp]。  
+
+而steady_clock和high_resolution_clock通常用于计时，比如你要统计一个代码段的执行用了多少时间可以这样做：
+{% highlight c++ %}
+high_resolution_clock::time_point tp1 = high_resolution_clock::now();
+/* your code */
+high_resolution_clock::time_point tp2 = high_resolution_clock::now();
+cout<<"code cost "<<duration_cast<milliseconds>(tp2 - tp1)<<" milliseconds"<<endl;
+{% endhighlight %}
+这里tp1和tp2做差时不要写错，不然结果会是负数了。  
+###实现自定义clock
+clock跟duration一样，也可以定义自己的clock。
+{% highlight c++ %}
+class century_clock
+{
+public:
+	typedef chrono::hours duration;
+	typedef duration::rep		rep;
+	typedef duration::period	period;
+	typedef chrono::time_point<century_clock, century_clock::duration> time_point;
+
+	static time_point now()
+	{
+		struct tm t1;
+		t1.tm_year = 2000;
+		t1.tm_mon = 1;
+		t1.tm_mday = 1;
+		t1.tm_hour = 1;
+		t1.tm_min = 0;
+		t1.tm_sec = 0;
+		chrono::system_clock::time_point epoch = chrono::system_clock::from_time_t(mktime(&t1));
+		return time_point(chrono::duration_cast<duration>(chrono::system_clock::now().time_since_epoch() - epoch.time_since_epoch()));
+	}
+};
+{% endhighlight %}
+
+上面定义了一个从21世纪开始计算的一个century_clock。通过它的now()接口取得的time_point都取自当前时刻与2000年初的时间差，且单位为小时。不过这个实现有个缺陷，获取到的time_point在通过time_since_epoch获取duration时还是指向了1970年，这个需要重写time_point实现，略过不写了。  
+
+标准内置的system_clock与另外两者的区别在于精度。
+在system_clock中精度被定义为microseconds，也就是只能精确到微秒级别。
+而high_resolution_clock精确到了纳秒级别。所以对于代码执行的统计，一定记得要使用high_resolution_clock。  
+有关示例代码参见[chrono sample](https://github.com/bournex/cpp11/blob/master/chrono/cpptest.cpp)
+
+以上。
