@@ -6,7 +6,7 @@ description: c++11 之 ratio & chrono
 >
 提笔
 
-#ratio  
+# ratio  
 先来看一下ratio，翻译成中文是比率的意思，就是一个分数。使用也很简单，ratio有两个模板参数，一个是分子，一个是分母。而分子和分母都为1的ratio，就是单位值。    
 ratio<1,100>的含义就是1/100个单位值，也就是百分之一。  
 在数学中我们都知道，一个分数在没有上下文语境的情况下，没有什么意义。ratio也一样。通常ratio用来定义一个基本单位类型，比如  
@@ -15,7 +15,7 @@ typedef ratio<3600,1> hour;
 {% endhighlight %}  
 那么hour(1)就代表3600个基本单位，在这里我们把基本单位看做秒。
 事实上ratio也大量用在chrono的时间处理中。
-###通过ratio算术运算定义新ratio  
+### 通过ratio算术运算定义新ratio  
 ratio之间也支持算数运算，毕竟是分数，分数和分数的加减乘除其结果还是个分数，比如  
 {% highlight c++ %}
 typedef ratio<1000,1> one_thou;
@@ -24,10 +24,10 @@ typedef ratio_multipy<one_thou, thou_percent> one_by_one;
 {% endhighlight %}
 one_by_one就是ratio<1,1>。
 
-#chrono  
+# chrono  
 chrono是c++11的计时库
 首先我们来看看chrono中的几种类型。  
-##duration    
+## duration    
 顾名思义，是时间段的含义，是指从一个时刻到另一个时刻之间的差距。他的定义如下  
 {% highlight c++ %}
 template<class Rep, class Period> class duration;
@@ -55,7 +55,7 @@ seconds one_day_and_one_hour = duration_cast<seconds>(one_day + hours(1));
 {% endhighlight %}  
 one_day_and_one_hour.count()就是90000秒。
 
-###不同精度的duration转换  
+### 不同精度的duration转换  
 有的时候我们需要从高精度向低精度转换，但是又不想丢掉精度数据。这就需要稍微变化一下duration_cast的模板参数，比如：
 {% highlight c++ %}
 microseconds sec(333);
@@ -68,7 +68,7 @@ chrono中共定义了6个duration，分别是nanoseconds、microseconds、millis
 typedef duration<long, ratio<1800,1>> half_hours;
 typedef duration<long, ratio<86400,1>> days;
 {% endhighlight %}  
-###duration之间的运算  
+### duration之间的运算  
 不同的duration类型之间，无须cast即可以进行算数操作，这是因为duration中已经保存了对单位值的比率，只需要乘以或除以相应的比率，就可以进行运算，这在chrono中已经实现了。
 {% highlight c++ %}
 half_hours hh(3);
@@ -78,7 +78,7 @@ seconds total = hh + sec;	// total = 3*1800/1 + 1000 = 6400
 总体来说，还是比较简单的
 
 那现在基本已经掌握了duration的操作，我们再来看看下一个：
-###time_point 与clock  
+### time_point 与clock  
 顾名思义，时间点，得感谢标准委员会，名字起得都很到位。
 由于time_point和clock是相互引用的，所以这里还需要提前介绍一下下一个概念clock。
 clock是时钟，每个时钟都有一个起始时间，我们叫做epoch。在time_point的模板参数里，第一个就是clock类型，其实time_point就是为了引用clock的这个起始时间，毕竟我们说一个时间点，总得说明是相对哪个时间来算的啊。
@@ -117,7 +117,7 @@ system_clock::duration to_epoch = current.time_since_epoch();
 days day_to_epoch = duration_cast<days>(to_epoch);
 {% endhighlight %}
 第二句用到了我们前面自己创造的duration类型days，并获取到了从现在到epoch经过了多少天。是不是很好用？！  
-###time_point与duration的运算
+### time_point与duration的运算
 time_point也进行了很多重载。比如，两个time_point做差，就会得到一个时间段duration。一个time_point加上或减去一个duration，就会得到另一个time_point。这些计算都符合常识认知，就不列举了。但显然，两个time_point相加这样的操作是不会有的，因为没什么实际意义。  
 
 前面说了clock，在chrono中，定义了三种clock，system_clock、steady_clock、high_resolution_clock。  
@@ -131,7 +131,7 @@ high_resolution_clock::time_point tp2 = high_resolution_clock::now();
 cout<<"code cost "<<duration_cast<milliseconds>(tp2 - tp1)<<" milliseconds"<<endl;
 {% endhighlight %}
 这里tp1和tp2做差时不要写错，不然结果会是负数了。  
-###实现自定义clock
+### 实现自定义clock
 clock跟duration一样，也可以定义自己的clock。
 {% highlight c++ %}
 class century_clock

@@ -7,10 +7,10 @@ description: exploit and stack frame
 >
 >
 
-###前置知识		
+### 前置知识		
 >  
 
-###asm	  
+### asm	  
 >
 >
 
@@ -36,7 +36,7 @@ description: exploit and stack frame
 
 以上基本都是对intel manual的翻译，回顾一下这些指令。
 
-###register  
+### register  
 
 >
 
@@ -55,7 +55,7 @@ description: exploit and stack frame
 EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明参考[Intel® 64 and IA-32 Architectures Software Developer’s Manuals  3.4.1节](http://119.90.25.40/www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-1-manual.pdf)。
 
 
-###stack frame
+### stack frame
 
 >
 
@@ -75,7 +75,7 @@ EIP保存了下一条要交给CPU执行的指令。更详细寄存器的说明�
 >
 >
 
-###代码分析  
+### 代码分析  
 >
 
 现有如下的C++程序  
